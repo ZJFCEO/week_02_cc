@@ -16,3 +16,7 @@ venv/
 
 # 环境变量（DEEPSEEK_API_KEY 等）
 .env
+
+# Go
+/go/bin/
+*.test

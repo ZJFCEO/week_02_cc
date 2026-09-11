@@ -4,7 +4,8 @@ AI Agent 全栈工程师训练营第二章作业：在训练营提供的工具�
 把 **参数校验 → 业务预检 → 权限判断 → 人工审批 → 超时处理 → 结果脱敏 → 审计追踪** 这条链路完整跑通。
 
 框架代码（`tool_governance_demo.py` 中的权限状态机与执行运行时）由训练营提供，
-本仓库新增的部分是：转账工具的实现、五个链路测试、全文中文注释与三份文档。
+本仓库新增的部分是：转账工具的实现、五个链路测试、全文中文注释、三份文档，
+以及一份行为对齐的 **Go 复刻**（见 [go/](go/)）。
 
 ---
 
@@ -100,9 +101,12 @@ flowchart TD
 ├── conftest.py                      让 pytest 两种启动方式都能导入根目录模块
 ├── tests/
 │   └── test_tool_governance.py      五个转账链路测试
-└── docs/
-    ├── reading_guide.md             阅读指南：五步阅读顺序 + 五个破坏性实验
-    └── transfer_sequence.md         时序图（mermaid）
+├── docs/
+│   ├── reading_guide.md             阅读指南：五步阅读顺序 + 五个破坏性实验
+│   └── transfer_sequence.md         时序图（mermaid）
+└── go/                              Go 复刻，行为与 Python 版对齐
+    ├── cmd/demo/                    离线演示入口
+    └── governance/                  框架与工具实现 + 六个测试
 ```
 
 `tool_governance_demo.py` 的分区：
@@ -128,6 +132,28 @@ flowchart TD
 
 代码里的注释针对 Go 背景读者做了语法对照（`dataclass` ≈ struct、`asyncio.timeout` ≈ `context.WithTimeout`、
 异常 ≈ `if err != nil` 的位置等），文件开头有一张完整对照表。
+
+---
+
+## Go 版
+
+[go/](go/) 下是同一套设计的 Go 实现，九次演示调用的输出、错误码、脱敏结果和审计条数都与 Python 版一致。
+
+```bash
+cd go && go run ./cmd/demo
+```
+
+```bash
+cd go && go test ./governance/ -v -run Transfer
+```
+
+值得对照着看的是三处语言层面的真实差异（详见 [go/README.md](go/README.md)）：
+
+1. **参数校验**：没有 pydantic，拆成 `DisallowUnknownFields` + 手写 `Validate()`
+2. **超时语义**：Go 不能中断 goroutine，超时只是"放弃等待"而非"取消执行"——
+   `timeout_semantics_test.go` 用一个不看 `ctx` 的 handler 把这件事跑了出来，
+   这正是 `TIMEOUT_UNKNOWN` 存在的理由
+3. **并发安全**：Python 单线程事件循环不用锁，Go 的账本、审批库、审计口都必须加锁，`go test -race` 干净
 
 ---
 
