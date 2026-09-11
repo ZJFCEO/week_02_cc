@@ -1,0 +1,142 @@
+# Week 02 · 工具治理与权限状态机
+
+AI Agent 全栈工程师训练营第二章作业：在训练营提供的工具治理框架上新增一个「转账」工具，
+把 **参数校验 → 业务预检 → 权限判断 → 人工审批 → 超时处理 → 结果脱敏 → 审计追踪** 这条链路完整跑通。
+
+框架代码（`tool_governance_demo.py` 中的权限状态机与执行运行时）由训练营提供，
+本仓库新增的部分是：转账工具的实现、五个链路测试、全文中文注释与三份文档。
+
+---
+
+## 快速开始
+
+需要 Python 3.11+（用到了 `StrEnum` 和 `asyncio.timeout`）。
+
+```bash
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python pydantic pytest
+```
+
+跑离线演示，九次调用覆盖治理链路的主要分支：
+
+```bash
+.venv/bin/python tool_governance_demo.py
+```
+
+转账相关的三行输出分别对应三种结局：
+
+```
+call_07  confirm  APPROVAL_REQUIRED  参数与权限都没问题，但高风险写操作必须先问人
+call_08  allow    OK                 带审批重放，执行成功，返回 ACC-A-****3456
+call_09  deny     EXCEED_LIMIT       同一张审批换了金额，先被业务预检挡住
+```
+
+跑测试：
+
+```bash
+.venv/bin/python -m pytest tests/test_tool_governance.py -v -k transfer
+```
+
+---
+
+## 治理链路
+
+```mermaid
+flowchart TD
+    A[模型发起调用] --> B[参数校验<br/>TransferArgs]
+    B --> C[权限判断<br/>deny 规则 / plan / 白名单 / RBAC]
+    C --> D[业务预检<br/>单笔限额 + 余额充足]
+    D --> E{审批是否有效<br/>绑定用户与参数}
+    E -->|无效| F[返回 confirm<br/>挂起等人确认]
+    F -.人工审批.-> A
+    E -->|有效| G[执行 handler<br/>2 秒超时保护]
+    G --> H[结果脱敏<br/>_redact]
+    H --> I[写审计<br/>AuditSink]
+    I --> J[返回模型]
+```
+
+完整时序图（含审批绑定与超时分支）见 [docs/transfer_sequence.md](docs/transfer_sequence.md)。
+
+---
+
+## 作业完成情况
+
+| 任务 | 实现位置 | 说明 |
+|---|---|---|
+| 1 模拟账户数据 | `ACCOUNTS` | key 为 `(tenant_id, account_id)`，tenant_a 三个账户、tenant_b 一个 |
+| 2 转账参数模型 | `TransferArgs` | 账号正则 `^ACC-[A-Z]-[0-9]{6}$`，金额 `0 < amount <= 100000`，保留 `extra="forbid"` |
+| 3 业务预检 | `transfer_precheck` | 先查限额（`EXCEED_LIMIT`）再查余额（`INSUFFICIENT_BALANCE`），只判断不改账本 |
+| 4 转账处理 | `transfer_handler` | 超时模拟、转入账户校验（`ACCOUNT_NOT_FOUND`）、扣款入账、返回流水号 |
+| 5 注册工具 | `build_tools()` | `ToolPolicy(WRITE, HIGH, "transfer:execute", 需审批, 2.0s, 不重试, 非幂等)` |
+| 6 结果脱敏 | `_redact` | 邮箱脱敏之后追加账号掩码：`ACC-A-123456 → ACC-A-****3456` |
+
+约束遵守情况：
+
+- `PermissionEngine.decide` 的可执行代码一行未改（只增加了说明性注释，已用 token 比对验证）
+- 所有测试调用都经过 `ToolRuntime.invoke`，没有直接调 handler
+- `TransferArgs` 的 `extra="forbid"` 保留
+
+---
+
+## 测试
+
+五个测试对应链路上的五个观察点：
+
+| 测试 | 验证什么 |
+|---|---|
+| `test_transfer_rejects_invalid_arguments` | 格式错、金额越界、多传字段全部 `INVALID_ARGUMENT`，账本零变化 |
+| `test_transfer_precheck_blocks_limit_and_insufficient_balance` | 限额与余额拦截，且审计里只有 decision 阶段记录 |
+| `test_transfer_requires_approval_then_executes_with_redaction` | 先 `confirm` 后放行，余额正确增减，返回值中账号已脱敏 |
+| `test_transfer_approval_is_bound_to_canonical_arguments` | 改金额、换用户都退回 `confirm`；审批一次性，重放失效 |
+| `test_transfer_timeout_reports_unknown_result` | 非幂等写操作超时返回 `TIMEOUT_UNKNOWN`，账本未变 |
+
+---
+
+## 项目结构
+
+```
+.
+├── tool_governance_demo.py          治理框架 + 四个工具（含转账），全文中文注释
+├── conftest.py                      让 pytest 两种启动方式都能导入根目录模块
+├── tests/
+│   └── test_tool_governance.py      五个转账链路测试
+└── docs/
+    ├── reading_guide.md             阅读指南：五步阅读顺序 + 五个破坏性实验
+    └── transfer_sequence.md         时序图（mermaid）
+```
+
+`tool_governance_demo.py` 的分区：
+
+| 区段 | 内容 |
+|---|---|
+| 一～二 | 枚举常量、执行上下文、工具策略 |
+| 三～四 | 工具参数模型、工具定义与框架内部结构 |
+| 五 | 审批摘要、审批库、审计口、脱敏 |
+| 六 | 权限状态机（九步固定优先级，作业禁止改动） |
+| 七 | `ToolRuntime`：一次调用的四个阶段 |
+| 八～九 | 模拟数据、四个工具实现、运行时组装 |
+| 十 | 离线演示与可选的 DeepSeek Agent Loop |
+
+---
+
+## 怎么读这份代码
+
+建议按 [docs/reading_guide.md](docs/reading_guide.md) 的顺序：先读类型定义，再读 `ToolRuntime.invoke` 的四个阶段，
+然后是 `PermissionEngine.decide` 的九步优先级，最后才看转账那四段业务代码。
+
+指南里还有五个实测过的破坏性实验——把某一层删掉，看哪个测试变红，这是理解治理框架最快的方式。
+
+代码里的注释针对 Go 背景读者做了语法对照（`dataclass` ≈ struct、`asyncio.timeout` ≈ `context.WithTimeout`、
+异常 ≈ `if err != nil` 的位置等），文件开头有一张完整对照表。
+
+---
+
+## 可选：接真实模型
+
+```bash
+export DEEPSEEK_API_KEY=sk-xxx
+.venv/bin/python tool_governance_demo.py --agent --input "请查询订单 ord_1001 的状态和可退金额"
+```
+
+模型吐出来的每一次 `tool_calls` 同样走 `runtime.invoke`，治理链路一步不少。
+演示里只放开了只读工具，模型碰不到退款和转账。
