@@ -20,13 +20,19 @@ go run ./cmd/demo
 go run ./cmd/demo --agent --input "请查询订单 ord_1001 的状态和可退金额"
 ```
 
+同样的 Agent Loop，改用 CloudWeGo Eino 框架实现（见下文「Eino 版」）：
+
+```bash
+go run ./cmd/eino-agent --input "请查询订单 ord_1001 的状态和可退金额"
+```
+
 对应作业验收命令，只跑 5 个转账测试：
 
 ```bash
 go test ./governance/ -v -run Transfer
 ```
 
-跑全部 19 个：
+跑全部 25 个（`governance` 19 个 + `einoagent` 6 个）：
 
 ```bash
 go test ./... -race -v
@@ -42,7 +48,9 @@ Go 的测试文件按惯例和源码放在同一个目录（`governance/`），�
 | `governance_test.go` | 8 | `tests/test_tool_governance.py` 前 8 个训练营原版用例，逐个移植 |
 | `transfer_test.go` | 5 | 同一文件末尾的 5 个转账测试 |
 | `timeout_semantics_test.go` | 1 | Go 独有，证明超时不等于取消 |
-| `agent_test.go` | 5 | Go 独有，用本地假服务器模拟流式响应，测 Agent Loop |
+| `agent_test.go` | 5 | Go 独有，用本地假服务器模拟流式响应，测手写版 Agent Loop |
+| `einoagent/tools_test.go` | 3 | Eino 版：用 Eino 真实的 ToolsNode 验证治理层仍是唯一执行入口 |
+| `einoagent/agent_test.go` | 3 | Eino 版：假服务器驱动 ReAct Agent，含默认检查函数漏调工具的对照实验 |
 
 函数名与 Python 一一对应，只是 snake_case 换成 CamelCase，
 例如 `test_plan_mode_denies_write_before_approval` → `TestPlanModeDeniesWriteBeforeApproval`。
@@ -55,8 +63,15 @@ Go 的测试文件按惯例和源码放在同一个目录（`governance/`），�
 
 ```
 go/
-├── cmd/demo/main.go                  离线演示入口
-└── governance/
+├── cmd/
+│   ├── demo/main.go                  离线演示 + --agent 手写版 Agent Loop
+│   └── eino-agent/main.go            Eino 版 Agent Loop
+├── einoagent/                        Eino 版（依赖 eino / eino-ext）
+│   ├── tools.go                      适配器：Eino 工具 -> runtime.Invoke
+│   ├── agent.go                      DeepSeek ChatModel + ReAct Agent
+│   ├── tools_test.go
+│   └── agent_test.go
+└── governance/                       治理框架（只依赖标准库）
     ├── types.go                      枚举、执行上下文、工具策略、工具定义、结果与审计记录
     ├── errors.go                     PolicyError / TransientError / ValidationError
     ├── args.go                       Args 接口、四个参数结构体、DecodeArgs（extra=forbid 的等价物）
@@ -66,7 +81,7 @@ go/
     ├── runtime.go                    ToolRuntime.Invoke —— 一次调用的四个阶段
     ├── tools.go                      模拟数据、四个工具实现、注册与运行时组装
     ├── demo.go                       九次演示调用
-    ├── agent.go                      真实模型 Agent Loop（标准库手写流式解析，零依赖）
+    ├── agent.go                      手写版 Agent Loop（标准库手写流式解析）
     ├── helpers_test.go               测试公共工具 + go test 与 pytest 对照
     ├── governance_test.go            训练营原版 8 个基线测试（从 Python 移植）
     ├── transfer_test.go              作业新增的 5 个转账测试
@@ -144,6 +159,42 @@ Go 版只用标准库 `net/http`，把 SDK 底下的事摊开来写（见 `agent
 
 两边都接真实 DeepSeek 跑过同一句输入，行为一致。唯一可见的差别是数字格式：
 Python 的 `json.dumps` 把可退金额写成 `399.0`，Go 的 `encoding/json` 写成 `399`，所以模型复述时也跟着不同。
+
+## Eino 版
+
+`einoagent/` 用 [CloudWeGo Eino](https://github.com/cloudwego/eino)（`v0.9.19`）重写了同一个 Agent Loop，
+模型用 `eino-ext` 的 DeepSeek 组件（`v0.1.7`），编排用 ReAct Agent。
+
+**分工很明确：Eino 管"跟模型打交道"，治理框架管"工具能不能执行"。** 两层是上下关系，不是二选一。
+依赖也只进了 `einoagent` 包，`governance` 包仍然只用标准库。
+
+| 手写版 `governance/agent.go` | Eino 版 `einoagent/` |
+|---|---|
+| `net/http` + 手写 SSE 解析 | `deepseek.NewChatModel` |
+| 按 index 拼接 tool_calls 分片 | 框架内部完成 |
+| 8 轮 for 循环 | `react.NewAgent`，`MaxStep: 16` |
+| `ModelTools()` 输出 JSON Schema | `GovernedTool.Info()` 返回 `schema.ToolInfo` |
+| 直接调 `runtime.Invoke` | `GovernedTool.InvokableRun` 转发给 `runtime.Invoke` |
+
+两个版本接真实 DeepSeek 跑过相同的三句输入（正常查单、查不存在的订单、诱导直接退款），行为一致。
+
+接入 Eino 时踩到、并用测试证实的五个点：
+
+1. **绝不能把 handler 直接注册成 Eino 工具。** 模型一调就真的执行了，治理层被整个绕过。
+   正确做法是适配器：`InvokableRun` 里只转发给 `runtime.Invoke`，自己不含任何业务逻辑。
+2. **治理结论要作为工具结果返回，不能返回 error。** CONFIRM、DENY 是正常结论，模型要读到
+   `APPROVAL_REQUIRED` 这些错误码；返回 error 会让 Eino 把它当执行失败，整个 Agent 报错结束。
+   `tool_call_id` 不在 `InvokableRun` 的参数里，要用 `compose.GetToolCallID(ctx)` 取。
+3. **越权调用要配 `UnknownToolsHandler`。** 模型调用未注册的工具时，Eino 默认直接报错中断。
+   把它也转给 `runtime.Invoke`，由执行期白名单返回 `TOOL_NOT_ALLOWED`，和手写版行为一致。
+4. **流式模式要自定义 `StreamToolCallChecker`。** Eino 默认只看第一个非空 chunk 判断模型有没有调工具。
+   DeepSeek 真实输出过"先说一句话再调工具"，默认实现会把开场白当最终答案、工具一次不执行——
+   `TestEinoDefaultStreamCheckerMissesToolCallsAfterText` 把这个现象跑了出来。
+5. **ToolsNode 默认并发执行同一轮的多个工具。** 手写版是串行的。适配器打印 `[tool_result]` 的 writer
+   一开始没加锁，`-race` 当场报了数据竞争；治理框架本身没问题，因为 runtime、账本、审批库、审计口早就加了锁。
+
+另外，`MaxStep` 数的是图节点的执行步数而不是对话轮数：ReAct 一轮 = 模型 1 步 + 工具 1 步，
+所以设 16 才对应手写版的 8 轮，`TestEinoAgentStopsAfterMaxRounds` 验证了正好请求模型 8 次。
 
 ## 其他值得一提的小差异
 

@@ -119,7 +119,8 @@ flowchart TD
 │   └── transfer_sequence.md         时序图（mermaid）
 └── go/                              Go 复刻，行为与 Python 版对齐
     ├── cmd/demo/                    离线演示入口
-    └── governance/                  框架、工具、Agent Loop + 19 个测试（原版 8 + 转账 5 + Go 独有 6）
+    ├── governance/                  框架、工具、手写版 Agent Loop（只依赖标准库）+ 19 个测试
+    └── einoagent/                   Eino 版 Agent Loop，通过适配器接入治理框架 + 6 个测试
 ```
 
 `tool_governance_demo.py` 的分区：
@@ -155,7 +156,11 @@ flowchart TD
 ```bash
 cd go && go run ./cmd/demo            # 离线演示
 cd go && go run ./cmd/demo --agent    # 接 DeepSeek 真实模型，与 Python 版的 --agent 对应
+cd go && go run ./cmd/eino-agent      # 同一个 Agent Loop 的 Eino 框架实现
 ```
+
+Eino 版的要点：Eino 管模型交互，治理框架管工具能不能执行。所有 Eino 工具都通过适配器转发给
+`runtime.Invoke`，绝不直接注册 handler。接入时的五个坑见 [go/README.md](go/README.md#eino-版)。
 
 ```bash
 cd go && go test ./governance/ -v -run Transfer
@@ -186,10 +191,11 @@ export DEEPSEEK_API_KEY=sk-xxx
 .venv/bin/python tool_governance_demo.py --agent --input "请查询订单 ord_1001 的状态和可退金额"
 ```
 
-Go 版同样支持，参数一致，不需要额外依赖：
+Go 版同样支持，参数一致：
 
 ```bash
-cd go && go run ./cmd/demo --agent --input "请查询订单 ord_1001 的状态和可退金额"
+cd go && go run ./cmd/demo --agent --input "请查询订单 ord_1001 的状态和可退金额"    # 手写版
+cd go && go run ./cmd/eino-agent --input "请查询订单 ord_1001 的状态和可退金额"     # Eino 版
 ```
 
 模型吐出来的每一次 `tool_calls` 同样走 `runtime.invoke`，治理链路一步不少。
