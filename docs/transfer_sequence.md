@@ -26,7 +26,7 @@ sequenceDiagram
     P->>P: 比对审批摘要 (用户/租户/工具/参数)
     P-->>R: allow APPROVED
     alt amount <= 80000
-        R->>H: 执行 (2s 超时保护)
+        R->>H: 执行 (1.5s 超时保护)
         H->>H: 扣款并入账
         H-->>R: txn_id + 明文账号
         R->>R: _redact 脱敏

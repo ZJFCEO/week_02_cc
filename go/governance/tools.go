@@ -216,7 +216,7 @@ func transferHandler(ctx context.Context, toolCallID string, args Args, ec Execu
 	}
 
 	if typed.Amount > 80_000 {
-		// 教学用超时模拟：等 3 秒，而工具策略里的超时是 2 秒，必然超时。
+		// 教学用超时模拟：等 3 秒，而工具策略里的超时是 1.5 秒，必然超时。
 		select {
 		case <-time.After(3 * time.Second):
 		case <-ctx.Done():
@@ -330,20 +330,21 @@ func BuildTools() []ToolDefinition {
 				"amount":       map[string]any{"type": "number", "exclusiveMinimum": 0, "maximum": 100000},
 			}, "from_account", "to_account", "amount"),
 			Policy: ToolPolicy{
-				Effect:           EffectWrite,      // 写操作，plan 模式下直接拒绝
-				Risk:             RiskHigh,         // 高风险，自动触发审批（这一项就足够了）
-				Permission:       PermTransferExec, // 缺这个权限停在 Decide 第 4 步
-				RequiresApproval: true,             // 显式要求审批，写出来是为了表达意图
-				Timeout:          2 * time.Second,  // 正好小于 handler 里模拟的 3 秒
-				MaxRetries:       0,                // 不重试：非幂等的转账重试一次就是重复扣款
-				Idempotent:       false,            // 非幂等，超时报 TIMEOUT_UNKNOWN
+				Effect:           EffectWrite,             // 写操作，plan 模式下直接拒绝
+				Risk:             RiskHigh,                // 高风险，自动触发审批（这一项就足够了）
+				Permission:       PermTransferExec,        // 缺这个权限停在 Decide 第 4 步
+				RequiresApproval: true,                    // 显式要求审批，写出来是为了表达意图
+				Timeout:          1500 * time.Millisecond, // 小于 handler 里模拟的 3 秒
+				MaxRetries:       0,                       // 不重试：非幂等的转账重试一次就是重复扣款
+				Idempotent:       false,                   // 非幂等，超时报 TIMEOUT_UNKNOWN
 			},
 			Handler:  transferHandler,
 			Precheck: transferPrecheck,
-			// 规范化目标：转出->转入:金额，供 deny/allow 规则做前缀匹配。
+			// 规范化目标：转出->转入，供 deny/allow 规则做前缀匹配。
+			// 不含金额也不影响审批安全：审批摘要绑定的是完整参数，这里只服务于规则匹配。
 			CanonicalTarget: func(args Args) string {
 				typed := args.(*TransferArgs)
-				return fmt.Sprintf("%s->%s:%v", typed.FromAccount, typed.ToAccount, typed.Amount)
+				return fmt.Sprintf("%s->%s", typed.FromAccount, typed.ToAccount)
 			},
 		},
 	}

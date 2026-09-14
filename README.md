@@ -57,7 +57,7 @@ flowchart TD
     D --> E{审批是否有效<br/>绑定用户与参数}
     E -->|无效| F[返回 confirm<br/>挂起等人确认]
     F -.人工审批.-> A
-    E -->|有效| G[执行 handler<br/>2 秒超时保护]
+    E -->|有效| G[执行 handler<br/>1.5 秒超时保护]
     G --> H[结果脱敏<br/>_redact]
     H --> I[写审计<br/>AuditSink]
     I --> J[返回模型]
@@ -75,7 +75,7 @@ flowchart TD
 | 2 转账参数模型 | `TransferArgs` | 账号正则 `^ACC-[A-Z]-[0-9]{6}$`，金额 `0 < amount <= 100000`，保留 `extra="forbid"` |
 | 3 业务预检 | `transfer_precheck` | 先查限额（`EXCEED_LIMIT`）再查余额（`INSUFFICIENT_BALANCE`），只判断不改账本 |
 | 4 转账处理 | `transfer_handler` | 超时模拟、转入账户校验（`ACCOUNT_NOT_FOUND`）、扣款入账、返回流水号 |
-| 5 注册工具 | `build_tools()` | `ToolPolicy(WRITE, HIGH, "transfer:execute", 需审批, 2.0s, 不重试, 非幂等)` |
+| 5 注册工具 | `build_tools()` | `ToolPolicy(WRITE, HIGH, "transfer:execute", 需审批, 1.5s, 不重试, 非幂等)` |
 | 6 结果脱敏 | `_redact` | 邮箱脱敏之后追加账号掩码：`ACC-A-123456 → ACC-A-****3456` |
 
 约束遵守情况：

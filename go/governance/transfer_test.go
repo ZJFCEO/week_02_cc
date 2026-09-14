@@ -295,8 +295,8 @@ func TestTransferTimeoutReportsUnknownResult(t *testing.T) {
 	if result.Code != "TIMEOUT_UNKNOWN" {
 		t.Errorf("非幂等写操作超时应报 TIMEOUT_UNKNOWN，实际 %s", result.Code)
 	}
-	// 超时保护是 2 秒，handler 模拟 3 秒。等待时间应当贴近 2 秒而不是 3 秒。
-	if elapsed > 2500*time.Millisecond {
+	// 超时保护是 1.5 秒，handler 模拟 3 秒。等待时间应当贴近 1.5 秒而不是 3 秒。
+	if elapsed > 2*time.Second {
 		t.Errorf("超时保护没生效，等了 %v", elapsed)
 	}
 	// 账本必须一分未动——因为 handler 里的等待排在改余额之前，而且它尊重了 ctx。

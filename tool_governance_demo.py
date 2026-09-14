@@ -133,7 +133,7 @@ class ToolPolicy:
     permission: Permission
     # 是否强制审批。给"风险不高但仍需人确认"的工具用
     requires_approval: bool
-    # 单次执行超时。转账设 2.0 秒，handler 里 sleep 3 秒必然超时
+    # 单次执行超时。转账设 1.5 秒，handler 里 sleep 3 秒必然超时
     timeout_seconds: float
     # 最大重试次数。只有只读或幂等的工具才会真的重试
     max_retries: int
@@ -481,7 +481,7 @@ class PermissionEngine:
         self._approvals = approvals
 
     # 规则匹配：先比工具名，再比目标前缀。target_prefix 为 None 表示匹配该工具的全部调用。
-    # canonical_target 由每个工具自己定义，例如 run_shell 用命令原文，transfer 用 转出->转入:金额。
+    # canonical_target 由每个工具自己定义，例如 run_shell 用命令原文，transfer 用 转出->转入。
     def _rule_matches(self, rule: PermissionRule, tool: ToolDefinition, arguments: ArgsModel) -> bool:
         if rule.tool_name != tool.name:
             return False
@@ -1006,7 +1006,7 @@ async def transfer_handler(
 ) -> Mapping[str, Any]:
     arguments = raw_arguments
     assert isinstance(arguments, TransferArgs)
-    # 教学用超时模拟：睡 3 秒，而工具策略里的超时是 2 秒，必然超时。
+    # 教学用超时模拟：睡 3 秒，而工具策略里的超时是 1.5 秒，必然超时。
     # 注意这里被 asyncio.timeout 取消后，下面的代码一行都不会执行。
     if arguments.amount > 80_000:
         await asyncio.sleep(3.0)
@@ -1076,17 +1076,17 @@ def build_tools() -> list[ToolDefinition]:
             #     Effect.WRITE  写操作，plan 模式下直接拒绝
             #     Risk.HIGH     高风险，自动触发审批（这一项就足够了，不依赖下面的 True）
             #     True          显式要求审批，写出来是为了表达意图
-            #     2.0           超时 2 秒，正好小于 handler 里模拟的 3 秒
+            #     1.5           超时 1.5 秒，小于 handler 里模拟的 3 秒
             #     0             不重试：非幂等的转账重试一次就是重复扣款
             #     False         非幂等，所以超时报 TIMEOUT_UNKNOWN 而不是 TIMEOUT
-            policy=ToolPolicy(Effect.WRITE, Risk.HIGH, "transfer:execute", True, 2.0, 0, False),
+            policy=ToolPolicy(Effect.WRITE, Risk.HIGH, "transfer:execute", True, 1.5, 0, False),
             handler=transfer_handler,
             precheck=transfer_precheck,
-            # 规范化目标：转出->转入:金额。lambda 是匿名函数，供 deny/allow 规则做前缀匹配。
-            # 例如可以加一条规则禁止向某个账号前缀转账。
-            canonical_target=lambda args: (
-                f"{getattr(args, 'from_account')}->{getattr(args, 'to_account')}:{getattr(args, 'amount')}"
-            ),
+            # 规范化目标：转出->转入。lambda 是匿名函数，供 deny/allow 规则做前缀匹配，
+            # 例如可以加一条规则禁止从某个账号转出。
+            # 这里不含金额也不影响审批安全：审批摘要绑定的是完整参数（_approval_digest），
+            # canonical_target 只服务于规则匹配。
+            canonical_target=lambda args: f"{args.from_account}->{args.to_account}",
         ),
     ]
 
