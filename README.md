@@ -119,7 +119,7 @@ flowchart TD
 │   └── transfer_sequence.md         时序图（mermaid）
 └── go/                              Go 复刻，行为与 Python 版对齐
     ├── cmd/demo/                    离线演示入口
-    └── governance/                  框架与工具实现 + 六个测试
+    └── governance/                  框架与工具实现 + 14 个测试（原版 8 + 转账 5 + Go 独有 1）
 ```
 
 `tool_governance_demo.py` 的分区：
@@ -159,6 +159,8 @@ cd go && go run ./cmd/demo
 ```bash
 cd go && go test ./governance/ -v -run Transfer
 ```
+
+测试与 Python 版一一对应：原版 8 个基线测试移植在 `governance_test.go`，5 个转账测试在 `transfer_test.go`。
 
 值得对照着看的是三处语言层面的真实差异（详见 [go/README.md](go/README.md)）：
 

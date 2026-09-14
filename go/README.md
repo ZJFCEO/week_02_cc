@@ -1,6 +1,6 @@
 # Go 版：工具治理与权限状态机
 
-`tool_governance_demo.py` 的 Go 复刻，包含第二章作业的转账工具和五个链路测试。
+`tool_governance_demo.py` 的 Go 复刻，包含第二章作业的转账工具，以及与 Python 版一一对应的测试。
 
 行为与 Python 版对齐：同样的九次演示调用、同样的错误码、同样的脱敏结果、同样的审计条数。
 但有三处语言层面的真实差异，注释里都标了 `【Go 差异】`，那才是这份复刻值得读的地方。
@@ -11,15 +11,35 @@
 go run ./cmd/demo
 ```
 
+对应作业验收命令，只跑 5 个转账测试：
+
 ```bash
 go test ./governance/ -v -run Transfer
 ```
 
-跑全部测试（含一个专门演示 Go 超时语义的用例）：
+跑全部 14 个：
 
 ```bash
 go test ./... -race -v
 ```
+
+## 测试
+
+Go 的测试文件按惯例和源码放在同一个目录（`governance/`），文件名以 `_test.go` 结尾，
+不单独建 `tests/` 目录——这样测试能直接访问包内未导出的函数和变量。
+
+| 文件 | 用例数 | 对应 Python 版 |
+|---|---|---|
+| `governance_test.go` | 8 | `tests/test_tool_governance.py` 前 8 个训练营原版用例，逐个移植 |
+| `transfer_test.go` | 5 | 同一文件末尾的 5 个转账测试 |
+| `timeout_semantics_test.go` | 1 | Go 独有，证明超时不等于取消 |
+
+函数名与 Python 一一对应，只是 snake_case 换成 CamelCase，
+例如 `test_plan_mode_denies_write_before_approval` → `TestPlanModeDeniesWriteBeforeApproval`。
+标了 `【Go 差异】` 的断言是 Go 版额外加的：转账参数多测一种"金额写成字符串"，超时测试多断言一次等待时长。
+
+这套测试做过反向验证：把 deny 规则、plan 检查、`DisallowUnknownFields`、RBAC、审批摘要、执行期白名单、
+审批核销、token 脱敏、账号脱敏、转账幂等性这 10 处逐一改坏，每一处都有对应的用例变红。
 
 ## 包结构
 
@@ -36,8 +56,10 @@ go/
     ├── runtime.go                    ToolRuntime.Invoke —— 一次调用的四个阶段
     ├── tools.go                      模拟数据、四个工具实现、注册与运行时组装
     ├── demo.go                       九次演示调用
-    ├── transfer_test.go              作业要求的五个测试
-    └── timeout_semantics_test.go     证明 Go 的超时不等于取消
+    ├── helpers_test.go               测试公共工具 + go test 与 pytest 对照
+    ├── governance_test.go            训练营原版 8 个基线测试（从 Python 移植）
+    ├── transfer_test.go              作业新增的 5 个转账测试
+    └── timeout_semantics_test.go     Go 独有：证明超时不等于取消
 ```
 
 ## 作业六个任务的实现位置
