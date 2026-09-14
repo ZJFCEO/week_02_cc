@@ -15,7 +15,7 @@ AI Agent 全栈工程师训练营第二章作业：在训练营提供的工具�
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python pydantic pytest
+uv pip install --python .venv/bin/python pydantic pytest pytest-asyncio
 ```
 
 跑离线演示，九次调用覆盖治理链路的主要分支：

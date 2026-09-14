@@ -21,7 +21,7 @@ grep -nE "^# ===|^(class|def|async def) |^    (async def|def) .*\(" tool_governa
 
 ```bash
 uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python pydantic pytest
+uv pip install --python .venv/bin/python pydantic pytest pytest-asyncio
 .venv/bin/python tool_governance_demo.py
 ```
 
