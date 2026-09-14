@@ -119,7 +119,7 @@ flowchart TD
 │   └── transfer_sequence.md         时序图（mermaid）
 └── go/                              Go 复刻，行为与 Python 版对齐
     ├── cmd/demo/                    离线演示入口
-    └── governance/                  框架与工具实现 + 14 个测试（原版 8 + 转账 5 + Go 独有 1）
+    └── governance/                  框架、工具、Agent Loop + 19 个测试（原版 8 + 转账 5 + Go 独有 6）
 ```
 
 `tool_governance_demo.py` 的分区：
@@ -153,7 +153,8 @@ flowchart TD
 [go/](go/) 下是同一套设计的 Go 实现，九次演示调用的输出、错误码、脱敏结果和审计条数都与 Python 版一致。
 
 ```bash
-cd go && go run ./cmd/demo
+cd go && go run ./cmd/demo            # 离线演示
+cd go && go run ./cmd/demo --agent    # 接 DeepSeek 真实模型，与 Python 版的 --agent 对应
 ```
 
 ```bash
@@ -174,10 +175,25 @@ cd go && go test ./governance/ -v -run Transfer
 
 ## 可选：接真实模型
 
+Agent 模式额外依赖 `openai` 包（离线演示和测试不需要）：
+
+```bash
+uv pip install --python .venv/bin/python openai
+```
+
 ```bash
 export DEEPSEEK_API_KEY=sk-xxx
 .venv/bin/python tool_governance_demo.py --agent --input "请查询订单 ord_1001 的状态和可退金额"
 ```
 
+Go 版同样支持，参数一致，不需要额外依赖：
+
+```bash
+cd go && go run ./cmd/demo --agent --input "请查询订单 ord_1001 的状态和可退金额"
+```
+
 模型吐出来的每一次 `tool_calls` 同样走 `runtime.invoke`，治理链路一步不少。
 演示里只放开了只读工具，模型碰不到退款和转账。
+
+如果 `DEEPSEEK_API_KEY` 写在 `~/.zshrc` 里，只有交互式终端会加载它；
+在 IDE 的运行配置或脚本里运行时，需要另外设置环境变量。

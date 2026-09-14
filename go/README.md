@@ -7,8 +7,17 @@
 
 ## 快速开始
 
+离线演示，不需要 API Key：
+
 ```bash
 go run ./cmd/demo
+```
+
+接 DeepSeek 跑真实 Agent Loop，对应 Python 版的 `--agent`，环境变量规则也一致
+（`DEEPSEEK_API_KEY` 必填，`DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 可选）：
+
+```bash
+go run ./cmd/demo --agent --input "请查询订单 ord_1001 的状态和可退金额"
 ```
 
 对应作业验收命令，只跑 5 个转账测试：
@@ -17,7 +26,7 @@ go run ./cmd/demo
 go test ./governance/ -v -run Transfer
 ```
 
-跑全部 14 个：
+跑全部 19 个：
 
 ```bash
 go test ./... -race -v
@@ -33,6 +42,7 @@ Go 的测试文件按惯例和源码放在同一个目录（`governance/`），�
 | `governance_test.go` | 8 | `tests/test_tool_governance.py` 前 8 个训练营原版用例，逐个移植 |
 | `transfer_test.go` | 5 | 同一文件末尾的 5 个转账测试 |
 | `timeout_semantics_test.go` | 1 | Go 独有，证明超时不等于取消 |
+| `agent_test.go` | 5 | Go 独有，用本地假服务器模拟流式响应，测 Agent Loop |
 
 函数名与 Python 一一对应，只是 snake_case 换成 CamelCase，
 例如 `test_plan_mode_denies_write_before_approval` → `TestPlanModeDeniesWriteBeforeApproval`。
@@ -56,10 +66,12 @@ go/
     ├── runtime.go                    ToolRuntime.Invoke —— 一次调用的四个阶段
     ├── tools.go                      模拟数据、四个工具实现、注册与运行时组装
     ├── demo.go                       九次演示调用
+    ├── agent.go                      真实模型 Agent Loop（标准库手写流式解析，零依赖）
     ├── helpers_test.go               测试公共工具 + go test 与 pytest 对照
     ├── governance_test.go            训练营原版 8 个基线测试（从 Python 移植）
     ├── transfer_test.go              作业新增的 5 个转账测试
-    └── timeout_semantics_test.go     Go 独有：证明超时不等于取消
+    ├── timeout_semantics_test.go     Go 独有：证明超时不等于取消
+    └── agent_test.go                 Go 独有：假服务器驱动的 Agent Loop 测试
 ```
 
 ## 作业六个任务的实现位置
@@ -116,6 +128,22 @@ Go 的 handler 可能被多个 goroutine 并发调用，`go test` 也可能并�
 - `AuditSink.Records()` 返回拷贝而不是内部切片
 
 `go test -race` 是干净的。真实系统里账本这层锁的位置应该是数据库事务。
+
+### 4. Agent Loop：不用 SDK，手写流式解析
+
+Python 版用 `openai` SDK，流式解析和 tool_calls 拼接都被 SDK 藏起来了。
+Go 版只用标准库 `net/http`，把 SDK 底下的事摊开来写（见 `agent.go` 的 `streamChat`）：
+
+- 流式响应是一行行 `data: {json}`，最后一行 `data: [DONE]`；冒号开头的行是 keep-alive 注释，要跳过
+- 一次工具调用的 `id`、`name`、`arguments` 会拆成好几个 chunk 到达，要按 `index` **追加**拼接，而不是覆盖
+- 拼好后按 `index` 排序再执行——Go 的 map 遍历顺序是随机的，不排序的话每次执行顺序都可能不同
+
+`agent_test.go` 用 `httptest` 起一个本地假服务器，故意把参数切成两段、插入 keep-alive 行和没有 choices 的用量 chunk，
+并让模型越权调用 `create_refund`。测试验证了四件事：拼接正确；越权调用被白名单拦下，handler 一次没执行；
+回填给模型的查单结果里只有 `***@***`，明文邮箱从未进入模型上下文；第 8 轮之后强制停止。
+
+两边都接真实 DeepSeek 跑过同一句输入，行为一致。唯一可见的差别是数字格式：
+Python 的 `json.dumps` 把可退金额写成 `399.0`，Go 的 `encoding/json` 写成 `399`，所以模型复述时也跟着不同。
 
 ## 其他值得一提的小差异
 
