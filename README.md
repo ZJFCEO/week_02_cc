@@ -3,8 +3,9 @@
 AI Agent 全栈工程师训练营第二章作业：在训练营提供的工具治理框架上新增一个「转账」工具，
 把 **参数校验 → 业务预检 → 权限判断 → 人工审批 → 超时处理 → 结果脱敏 → 审计追踪** 这条链路完整跑通。
 
-框架代码（`tool_governance_demo.py` 中的权限状态机与执行运行时）由训练营提供，
-本仓库新增的部分是：转账工具的实现、五个链路测试、全文中文注释、三份文档，
+框架代码（`tool_governance_demo.py` 中的权限状态机与执行运行时）和基线测试
+（`tests/test_tool_governance.py` 的前 8 个用例）由训练营提供。
+本仓库新增的部分是：转账工具的实现、追加在原版测试末尾的 5 个转账测试、全文中文注释、三份文档，
 以及一份行为对齐的 **Go 复刻**（见 [go/](go/)）。
 
 ---
@@ -32,10 +33,16 @@ call_08  allow    OK                 带审批重放，执行成功，返回 ACC
 call_09  deny     EXCEED_LIMIT       同一张审批换了金额，先被业务预检挡住
 ```
 
-跑测试：
+作业验收命令，只跑 5 个转账测试：
 
 ```bash
 .venv/bin/python -m pytest tests/test_tool_governance.py -v -k transfer
+```
+
+跑全部 13 个（原版 8 个 + 转账 5 个）：
+
+```bash
+.venv/bin/python -m pytest tests/test_tool_governance.py -v
 ```
 
 ---
@@ -81,15 +88,21 @@ flowchart TD
 
 ## 测试
 
-五个测试对应链路上的五个观察点：
+`tests/test_tool_governance.py` 分两段：前 8 个是训练营原版用例，逐字未改；末尾追加 5 个转账测试，
+写法沿用原版（`async` 用例 + `@pytest.mark.asyncio` + 开头 `reset_side_effects()`）。
+原版用例依赖 `pytest-asyncio`。
+
+作业新增的 5 个转账测试，对应链路上的五个观察点：
 
 | 测试 | 验证什么 |
 |---|---|
-| `test_transfer_rejects_invalid_arguments` | 格式错、金额越界、多传字段全部 `INVALID_ARGUMENT`，账本零变化 |
-| `test_transfer_precheck_blocks_limit_and_insufficient_balance` | 限额与余额拦截，且审计里只有 decision 阶段记录 |
-| `test_transfer_requires_approval_then_executes_with_redaction` | 先 `confirm` 后放行，余额正确增减，返回值中账号已脱敏 |
+| `test_transfer_schema_rejects_invalid_arguments` | 格式错、金额越界、多传字段全部 `INVALID_ARGUMENT`，账本零变化 |
+| `test_transfer_precheck_denies_over_limit_and_insufficient_balance` | 限额与余额拦截，且审计里只有 decision 阶段记录 |
+| `test_transfer_requires_approval_then_executes_with_redacted_accounts` | 先 `confirm` 后放行，余额正确增减，返回值中账号已脱敏，审计三条记录顺序正确 |
 | `test_transfer_approval_is_bound_to_canonical_arguments` | 改金额、换用户都退回 `confirm`；审批一次性，重放失效 |
-| `test_transfer_timeout_reports_unknown_result` | 非幂等写操作超时返回 `TIMEOUT_UNKNOWN`，账本未变 |
+| `test_transfer_timeout_reports_unknown_without_side_effects` | 非幂等写操作超时返回 `TIMEOUT_UNKNOWN`，账本未变 |
+
+训练营原版的 8 个用例在加入转账工具后依然全部通过。
 
 ---
 
@@ -100,7 +113,7 @@ flowchart TD
 ├── tool_governance_demo.py          治理框架 + 四个工具（含转账），全文中文注释
 ├── conftest.py                      让 pytest 两种启动方式都能导入根目录模块
 ├── tests/
-│   └── test_tool_governance.py      五个转账链路测试
+│   └── test_tool_governance.py      原版 8 个基线测试 + 追加的 5 个转账测试
 ├── docs/
 │   ├── reading_guide.md             阅读指南：五步阅读顺序 + 五个破坏性实验
 │   └── transfer_sequence.md         时序图（mermaid）

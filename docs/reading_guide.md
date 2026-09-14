@@ -121,32 +121,52 @@ uv pip install --python .venv/bin/python pydantic pytest pytest-asyncio
 
 ## 第 5 步：把测试当链路切片读
 
-五个测试就是链路上的五个观察点，每个只盯一环：
+`tests/test_tool_governance.py` 分两段，都值得读。
 
-| 测试函数 | 盯的是哪一环 |
+**前 8 个是训练营原版用例**，每个恰好钉住框架的一层。先读它们，等于拿到一份"每层该怎么测"的范本：
+
+| 原版测试 | 钉住的是哪一层 |
 |---|---|
-| `test_transfer_rejects_invalid_arguments` | 参数校验：格式、范围、额外字段 |
-| `test_transfer_precheck_blocks_limit_and_insufficient_balance` | 业务预检：限额与余额，且审计里只有 decision 阶段 |
-| `test_transfer_requires_approval_then_executes_with_redaction` | 审批放行 + 结果脱敏 + 审计三条记录 |
+| `test_deny_first_beats_bypass_permissions` | `decide` 第 1 步：deny 优先，bypass 模式也盖不掉 |
+| `test_plan_mode_denies_write_before_approval` | `decide` 第 2 步：plan 排在审批之前，手握有效审批也照样拒 |
+| `test_schema_rejects_forged_identity_and_approval` | `prepare-1`：`extra="forbid"` 拦住伪造的 `user_id` 和 `approved` |
+| `test_rbac_denial_keeps_handler_at_zero_calls` | `decide` 第 4 步：缺权限时 handler 调用次数为零 |
+| `test_approval_is_bound_to_canonical_arguments` | `decide` 第 6 步：审批与参数绑定，改了金额就作废 |
+| `test_result_is_redacted_but_audit_keeps_tool_call_id` | `finalize`：结果脱敏，审计仍保留 `tool_call_id` |
+| `test_discovery_and_execution_both_enforce_whitelist` | 发现期过滤 + `decide` 第 3 步执行期重查白名单 |
+| `test_one_time_approval_cannot_be_replayed` | `decide` 第 6 步：审批一次性，重放退回 confirm |
+
+**末尾 5 个是作业新增的转账测试**，写法完全照搬原版，覆盖链路上的五个观察点：
+
+| 转账测试 | 盯的是哪一环 |
+|---|---|
+| `test_transfer_schema_rejects_invalid_arguments` | 参数校验：格式、范围、额外字段 |
+| `test_transfer_precheck_denies_over_limit_and_insufficient_balance` | 业务预检：限额与余额，且审计里只有 decision 阶段 |
+| `test_transfer_requires_approval_then_executes_with_redacted_accounts` | 审批放行 + 结果脱敏 + 审计三条记录的顺序 |
 | `test_transfer_approval_is_bound_to_canonical_arguments` | 审批绑定参数、绑定用户、一次性 |
-| `test_transfer_timeout_reports_unknown_result` | 非幂等写操作超时的语义 |
+| `test_transfer_timeout_reports_unknown_without_side_effects` | 非幂等写操作超时的语义 |
+
+对照两段读会发现：转账测试里的审批绑定、一次性核销，原版已经用退款测过一遍了。
+框架层的行为不需要每个工具重测——转账测试真正新增的，是限额、余额、账号脱敏和超时这些**转账自己的业务规则**。
 
 ---
 
 ## 想学进去，就拆一层看一层
 
-读懂治理框架最快的方式，是把某一层删掉，看哪个测试变红。下面每一条都实测过：
+读懂治理框架最快的方式，是把某一层删掉，看哪个测试变红。下面每一条都实测过，跑的是全部 13 个用例：
 
 ```bash
-.venv/bin/python -m pytest tests/test_tool_governance.py -v -k transfer
+.venv/bin/python -m pytest tests/test_tool_governance.py -v
 ```
+
+五个实验里，训练营原版的 8 个用例始终是绿的——它们测的是退款、Shell、查单，与转账的改动互不干扰。
 
 下面提到的"转账那条注册"，都指 `build_tools()` 里 `name="transfer"` 的那个 `ToolDefinition`。
 
 ### 实验 1：把审批摘掉
 
 先只把转账那条注册里 `policy=ToolPolicy(...)` 的 `requires_approval` 从 `True` 改成 `False`
-（第四个位置参数）——**五个测试依然全绿**。
+（第四个位置参数）——**13 个测试依然全绿**。
 因为 `decide` 第 6 步的条件是 `requires_approval or risk is Risk.HIGH`，`Risk.HIGH` 自己就足以触发审批。
 
 把 `Risk.HIGH` 一起降成 `Risk.MEDIUM`，审批和审批绑定两个测试才会红。

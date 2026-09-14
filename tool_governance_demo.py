@@ -879,7 +879,7 @@ ACCOUNTS: dict[tuple[str, str], float] = {
 # 初始余额快照。dict(ACCOUNTS) 是浅拷贝，用于测试之间复位账本。
 INITIAL_ACCOUNTS: Mapping[tuple[str, str], float] = dict(ACCOUNTS)
 # 单笔转账限额。抽成模块级常量而不是写死在函数里，测试才能用 monkeypatch 临时放开它，
-# 去验证被限额挡住的超时分支（见 test_transfer_timeout_reports_unknown_result）。
+# 去验证被限额挡住的超时分支（见 test_transfer_timeout_reports_unknown_without_side_effects）。
 # 数字里的下划线只是可读性分隔符，50_000.0 就是 50000.0。
 SINGLE_TRANSFER_LIMIT = 50_000.0
 # 副作用计数器。测试靠它断言"被拒绝的调用真的一次都没执行"。
